@@ -1,6 +1,6 @@
 ---
-title: "ACSS Journals Notebook - Data Source and Cleaning"
-output: acss_journals_notebook
+title: "Arab Public Data Initiative Notebook - Data Source and Cleaning"
+output: Arab-Public-Data-Initiative-data_clean
 ---
 
 # Data source and cleaning
@@ -21,7 +21,6 @@ journals <- read_xlsb(path = "./Periodicals_244.xlsb", sheet = "Periodicals", ra
 # Replace missing fields will N/A
 journals <- journals %>% replace_with_na_all(condition = ~.x %in% common_na_strings)
 # Simplify and regularize column names
-summary(journals)
 colnames(journals) <- c("title","review.process","institution.name","institution.type","city","country","publisher","thematic.discipline","language","first.publication.year","address","telephone","fax","email","contact","contact.title","contact.email","url","research.focus","geo.focus","frequency","format","access","publication.item.type","periodical.language")
 # Adjust case in columns to regularize names and categories
 journals$review.process <- tolower(journals$review.process)
@@ -40,35 +39,43 @@ journals$publication.item.type <- tolower(journals$publication.item.type)
 # Update data types for columns
 journals <- journals %>% convert(fct(review.process, city, country, thematic.discipline, research.focus, geo.focus, frequency, format, publication.item.type))
 # Extract categories for counts
-# Access free or paid
+# Extract access free or paid
 journals$access.free <- str_detect(journals$access, regex('free', ignore_case = TRUE))
 journals$access.paid <- str_detect(journals$access, regex('paid', ignore_case = TRUE))
-# Language
+# Extract language
 journals$lang.ar <- str_detect(journals$language, regex('Arabic', ignore_case = TRUE))
 journals$lang.en <- str_detect(journals$language, regex('English', ignore_case = TRUE))
 journals$lang.fr <- str_detect(journals$language, regex('French', ignore_case = TRUE))
 journals$lang.other <- str_detect(journals$language, regex('Other', ignore_case = TRUE))
-# Publication format
+# Extract publication format
 journals$format.print <- str_detect(journals$format, regex('print', ignore_case = TRUE))
 journals$format.electronic <- str_detect(journals$format, regex('electronic', ignore_case = TRUE))
-# Type of items published
+# Extract type of items published
 journals$publication.item.type.articles <- str_detect(journals$publication.item.type, regex("arti(c)?les", ignore_case = TRUE))
 journals$publication.item.type.editorials <- str_detect(journals$publication.item.type, regex("editorials", ignore_case = TRUE))
-# Language of the periodical
+# Extract language of the periodical
 journals$periodical.lang.ar <- str_detect(journals$periodical.language, regex('Arabic', ignore_case = TRUE))
 journals$periodical.lang.en <- str_detect(journals$periodical.language, regex('English', ignore_case = TRUE))
 journals$periodical.lang.fr <- str_detect(journals$periodical.language, regex('French', ignore_case = TRUE))
 journals$periodical.lang.zh <- str_detect(journals$periodical.language, regex('Chinese', ignore_case = TRUE))
 journals$periodical.lang.es <- str_detect(journals$periodical.language, regex('(Espanol|Spanish)', ignore_case = TRUE))
 journals$periodical.lang.ru <- str_detect(journals$periodical.language, regex('Russian', ignore_case = TRUE))
-
-summary(journals$thematic.discipline)
+# Extract thematic discipline
+# Extract all listed disciplines
 disciplines.all <- as.factor(unlist(strsplit(paste(journals$thematic.discipline, sep = ", ", collapse = ", "), split = ", ", fixed = TRUE)))
-summary(disciplines.all)
-
+# Remove NA from list
+disciplines.all <- disciplines.all[!disciplines.all %in% "NA"]
+# Extract unique disciplines
 disciplines.unique <- levels(disciplines.all)
 
+lapply(disciplines.unique)
+
+extract_categories <- function(x, df, col) {
+  df$col.x <- str_detect(df$col, regex(x, ignore_case = TRUE))
+}
+
 disciplines.unique
+save(journals, file = "acss-journals.RData")
 ```
 
 

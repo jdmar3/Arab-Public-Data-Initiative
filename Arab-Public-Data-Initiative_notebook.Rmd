@@ -1,0 +1,13 @@
+---
+title: "Arab Public Data Initiative Notebook - Notes and Statistics"
+output: Arab-Public-Data-Initiative-notes_and_statistics
+---
+
+# Notes on ACSS Journals Datasheet
+
+```{r}
+load("acss-journals.Rdata")
+```
+
+# Statistics Summary of ACSS Journals Datasheet
+
