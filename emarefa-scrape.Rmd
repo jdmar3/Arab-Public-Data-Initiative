@@ -1,5 +1,5 @@
 ---
-title: "e-Marefa scrape"
+title: "eMarefa scrape"
 output: emarefa-scrape
 ---
 
@@ -65,7 +65,8 @@ repeat {
   cat("Waiting", seconds, "seconds until next expansion. ")
   Sys.sleep(seconds)
   if (total_clicks == 0){
-    cat("Results fully expanded.")
+    cat("\r","Results fully expanded.");
+    break
   }
 }
 
@@ -96,8 +97,8 @@ write.csv2(record_list, file = paste0(format(Sys.time(), "%Y%m%d%H%M%S"), "-emar
 save(record_list, file = paste0(format(Sys.time(), "%Y%m%d%H%M%S"), "-emarefa-soc-sci-journals.Rdata"))
 
 # Close ports, stop RSelenium server, garbage collection 
-rdriv$close()
-ffdriv$server$stop()
+#rdriv$close()
+#ffdriv$server$stop()
 rm(rdriv)
 gc()
 ```
