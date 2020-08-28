@@ -13,7 +13,11 @@ Scrape, aggregate, and parse issue-level details pages
 ```{r}
 
 ```
-Cross-reference my scrape list with ACSS list
+Cross-reference titles on my scrape list with ACSS list
+```{r}
+
+```
+Cross-reference years of coverage onmy scrape list with ACSS list
 ```{r}
 
 ```
