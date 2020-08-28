@@ -1,0 +1,23 @@
+---
+title: "To-do list"
+output: to-do_list-working projects
+---
+
+To-do:
+
+Scrape detail pages, aggregate, and parse
+```{r}
+
+```
+Scrape, aggregate, and parse issue-level details pages 
+```{r}
+
+```
+Cross-reference my scrape list with ACSS list
+```{r}
+
+```
+Use keyword list (Arabic, French, and English)
+```{r}
+
+```
