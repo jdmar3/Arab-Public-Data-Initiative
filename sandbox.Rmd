@@ -1,0 +1,93 @@
+---
+title: "sandbox"
+output: sandbox
+---
+
+```{r}
+movie <- read_html("https://en.wikipedia.org/wiki/The_Lego_Movie")
+cast <- html_nodes(movie, "tr:nth-child(8) .plainlist a")
+html_text(cast)
+html_name(cast)
+html_attrs(cast)
+html_attr(cast, "href")
+```
+
+```{r}
+library('rvest')
+library('RSelenium')
+
+html_tmp <- read_html(encoding = "utf-8", "https://search.emarefa.net/detail/BIM-835175/%D8%A7%D8%B3%D8%AA%D8%A8%D9%8A%D8%A7%D9%86-%D8%A7%D9%84%D9%85%D8%B9%D8%AA%D9%82%D8%AF%D8%A7%D8%AA-%D8%A7%D9%84%D8%AE%D8%B1%D8%A7%D9%81%D9%8A%D8%A9-%D8%A7%D9%84%D8%B4%D8%A7%D8%A6%D8%B9%D8%A9-%D9%81%D9%8A-%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1/1")
+
+fields <- html_nodes(html_tmp, ".inner-container > h3") %>% html_text()
+
+varnames <- fields[!grepl("Topics", fields)]
+varnames <- gsub("[[:punct:]]", "", varnames)
+varnames <- tolower(gsub(" ", "_", varnames))
+
+df_tmp <- data.frame(matrix(ncol = 13, nrow = 0))
+names(df_tmp) <- varnames
+
+values <- html_nodes(html_tmp, ".inner-container > p") %>% html_text()
+
+df_tmp[1, ] <- as.list(values)
+
+df_tmp$abstract_en <- 
+  html_node(html_tmp, "#EN_ABSTRACT > p") %>% html_text()
+
+df_tmp$abstract_ar <- 
+  html_node(html_tmp, "#AR_ABSTRACT > p") %>% html_text()
+
+df_tmp$abstract_fr <- 
+  html_node(html_tmp, "#FR_ABSTRACT > p") %>% html_text()
+
+merge(df_tmp, record_list)
+```
+
+Perhaps a more elegant solution involving lapply and a function
+
+```{r}
+### PART 2 ###
+### Loop over list of links to detail pages
+for (i in canonical) {
+# Read in html from detail page listed in records_list
+  #html.loop <- read_html(target)
+  html.loop <- read_html(canonical[i])
+# Write local copy of scraped HTML
+  write(html.loop, file=paste0("./", slug, "/", record_id[i], ".html"))
+# Extract metadata fieldnames
+  varnames.loop <- html_nodes(html.loop, ".inner-container > h3") %>% html_text()
+# Clean up fieldnames for insertion in records_lsit dataframe
+# Remove "Topics" because it doesn't parse the same as the other fields and is
+# unnecessary for our purposes
+  varnames.loop <- varnames.loop[!grepl("Topics", varnames.loop, ignore.case = TRUE)]
+# Remove punctuation and special characters from variable names
+  varnames.loop <- gsub("[[:punct:]]", "", varnames.loop)
+# force lowercase and replace all spaces with underscores
+  varnames.loop <- tolower(gsub(" ", "_", varnames.loop))
+# Build an empty dataframe with the varnames as column names
+  df.loop <- data.frame(matrix(ncol = length(varnames.loop), nrow = 0))
+  names(df.loop) <- varnames.loop
+
+  values.loop <- html_nodes(html.loop, ".inner-container > p") %>% html_text()
+
+  df.loop[1, ] <- as.list(values.loop)
+
+  df.loop$abstract_en <-
+    html_node(html.loop, "#EN_ABSTRACT > p") %>% html_text()
+
+  df.loop$abstract_ar <-
+    html_node(html.loop, "#AR_ABSTRACT > p") %>% html_text()
+
+  df.loop$abstract_fr <-
+    html_node(html.loop, "#FR_ABSTRACT > p") %>% html_text()
+# Write to dataframe
+  record_list <- merge(df.loop, record_list, all.x = TRUE, all.y = TRUE)
+### End loop
+  seconds <- sample(1:5, 1, replace=T)
+  cat("\r", record_id[i], "downloaded. Getting next record in", seconds, "seconds. ")
+# Cleanup
+  #rm(list=ls(pattern=".loop"))
+# Sleep for random number of seconds
+  Sys.sleep(seconds)
+}
+  ```
