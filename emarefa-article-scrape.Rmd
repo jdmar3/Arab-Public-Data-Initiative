@@ -137,6 +137,38 @@ current <- gsub(".html", "", list.files(paste0("./", slug, "/detail/")))
 names(done) <- paste0(baseurl, "/detail/", current)
 
 for (i in seq_along(canonical)) {
+  # Has the target detail page been scraped already?
+  if (!(canonical[i] %in% names(done))) {
+    cat("\r", record_id[i], "downloading")
+    # Check time of request
+    t0 <- Sys.time()
+    # Choose a random number of seconds
+    seconds <- runif(1, 0, 6)
+    # Read in html from detail page listed in records_list
+    session.loop <- html_session(canonical[i],ua)
+    # Store HTML in a variable
+    html.loop <- read_html(session.loop)
+    # Check time of response
+    t1 <- Sys.time()
+    # Identify how long the response took
+    response_delay <- as.numeric(t1-t0)
+    # Optimize wait time
+    sleepy_time <- seconds+(7*response_delay)
+
+    cat("\r", record_id[i], "downloaded. Getting next record in", sleepy_time, "seconds. ")
+    
+    # Create a filepath to write to
+    filepath <- paste0("./", slug, "/detail/", record_id[i], ".html")
+    write_html(html.loop, file = filepath)
+    # Add URL to done list
+    names(done)[i] <- canonical[i]
+    Sys.sleep(sleepy_time)
+  } else {
+    cat("\r", record_id[i], "already downloaded. Skipping.")
+  }
+}
+
+for (i in seq_along(canonical)) {
   # EXPLAIN THYSELF
   cat("\r", "Downloading", record_id[i], "...")
   # Has the target detail page been scraped already?
@@ -191,38 +223,45 @@ for (i in seq_along(canonical)) {
     cat("\r", record_id[i], "already downloaded. Skipping.")
   }
 }
-# 
-# for (i in thing) {
-# # Extract metadata fieldnames
-#   varnames.loop <- html_nodes(html.loop, ".inner-container > h3") %>% html_text()
-# # Clean up fieldnames for insertion in records_lsit dataframe
-# # Remove "Topics" because it doesn't parse the same as the other fields and is
-# # unnecessary for our purposes
-#   varnames.loop <- varnames.loop[!grepl("Topics", varnames.loop, ignore.case = TRUE)]
-# # Remove punctuation and special characters from variable names
-#   varnames.loop <- gsub("[[:punct:]]", "", varnames.loop)
-# # force lowercase and replace all spaces with underscores
-#   varnames.loop <- tolower(gsub(" ", "_", varnames.loop))
-# # Build an empty dataframe with the varnames as column names
-#   df.loop <- data.frame(matrix(ncol = length(varnames.loop), nrow = 0))
-#   names(df.loop) <- varnames.loop
-# 
-#   values.loop <- html_nodes(html.loop, ".inner-container > p") %>% html_text()
-# 
-#   df.loop[1, ] <- as.list(values.loop)
-# 
-#   df.loop$abstract_en <-
-#     html_node(html.loop, "#EN_ABSTRACT > p") %>% html_text()
-# 
-#   df.loop$abstract_ar <-
-#     html_node(html.loop, "#AR_ABSTRACT > p") %>% html_text()
-# 
-#   df.loop$abstract_fr <-
-#     html_node(html.loop, "#FR_ABSTRACT > p") %>% html_text()
-# # Write to dataframe
-#   record_list <- merge(df.loop, record_list, all.x = TRUE, all.y = TRUE)
-# ### End loop
-# }
+
+# Construct list of urls from filenames in archive directory
+
+
+current.extract <- list.files(paste0("./", slug, "/detail"), full.names = TRUE)
+# Loop over 
+for (i in 1:length(current.extract)) {
+# Read in HTML from archived files  
+  raw.loop <- read_html(current.extract[i])
+# Extract metadata fieldnames
+  varnames.loop <- html_nodes(raw.loop, ".inner-container > h3") %>% html_text()
+# Clean up fieldnames for insertion in records_lsit dataframe
+# Remove "Topics" because it doesn't parse the same as the other fields and is
+# unnecessary for our purposes
+  varnames.loop <- varnames.loop[!grepl("Topics", varnames.loop, ignore.case = TRUE)]
+# Remove punctuation and special characters from variable names
+  varnames.loop <- gsub("[[:punct:]]", "", varnames.loop)
+# force lowercase and replace all spaces with underscores
+  varnames.loop <- tolower(gsub(" ", "_", varnames.loop))
+# Build an empty dataframe with the varnames as column names
+  df.loop <- data.frame(matrix(ncol = length(varnames.loop), nrow = 0))
+  names(df.loop) <- varnames.loop
+
+  values.loop <- html_nodes(raw.loop, ".inner-container > p") %>% html_text()
+
+  df.loop[1, ] <- as.list(values.loop)
+
+  df.loop$abstract_en <-
+    html_node(raw.loop, "#EN_ABSTRACT > p") %>% html_text()
+
+  df.loop$abstract_ar <-
+    html_node(raw.loop, "#AR_ABSTRACT > p") %>% html_text()
+
+  df.loop$abstract_fr <-
+    html_node(raw.loop, "#FR_ABSTRACT > p") %>% html_text()
+# Write to dataframe
+  record_list <- merge(df.loop, record_list, all.x = TRUE, all.y = TRUE)
+### End loop
+}
 # 
 # # Write data frame out to CSV with datetimestamp appended
 # write.csv2(record_list, file = paste0(slug, "/", slug, "-DETAILS.csv"))
