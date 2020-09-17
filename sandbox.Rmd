@@ -90,4 +90,11 @@ for (i in canonical) {
 # Sleep for random number of seconds
   Sys.sleep(seconds)
 }
-  ```
+```
+
+```{r}
+session.loop <- html_session("https://johndmart.in")
+read_html(session.loop)
+
+```
+

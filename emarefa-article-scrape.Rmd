@@ -25,11 +25,22 @@ After all results are expanded by Selenium, we scrape the full SERP, and then pa
 #Loading the rvest and RSelenium packages
 library('rvest')
 library('RSelenium')
+library('httr')
 
 ### PART 1 ###
 # Specifying the url for desired website to be scraped
 baseurl <- "https://search.emarefa.net"
 scrape_url <- "https://search.emarefa.net/social-sciences?query%5B0%5D%5Btext%5D=data+table&query%5B0%5D%5Bfield%5D=all&query%5B1%5D%5Boperator%5D=OR&query%5B1%5D%5Btext%5D=%D8%AC%D8%AF%D9%88%D9%84+%D8%A7%D9%84%D8%A8%D9%8A%D8%A7%D9%86%D8%A7%D8%AA&query%5B1%5D%5Bfield%5D=all&query%5B0%5D%5Btext%5D=survey&query%5B0%5D%5Bfield%5D=all&query%5B1%5D%5Boperator%5D=OR&query%5B1%5D%5Btext%5D=%D8%A7%D9%84%D8%AF%D8%B1%D8%A7%D8%B3%D8%A9+%D8%A7%D9%84%D8%A7%D8%B3%D8%AA%D9%82%D8%B5%D8%A7%D8%A6%D9%8A%D8%A9&query%5B1%5D%5Bfield%5D=all&query%5B0%5D%5Btext%5D=data&query%5B0%5D%5Bfield%5D=all&query%5B1%5D%5Boperator%5D=OR&query%5B1%5D%5Btext%5D=%D8%A7%D9%84%D8%A8%D9%8A%D8%A7%D9%86%D8%A7%D8%AA&query%5B1%5D%5Bfield%5D=all&query%5B0%5D%5Btext%5D=dataset&query%5B0%5D%5Bfield%5D=all&query%5B1%5D%5Boperator%5D=OR&query%5B1%5D%5Btext%5D=%D9%85%D8%AC%D9%85%D9%88%D8%B9%D8%A9+%D8%A7%D9%84%D8%A8%D9%8A%D8%A7%D9%86%D8%A7%D8%AA&query%5B1%5D%5Bfield%5D=all&query%5B0%5D%5Btext%5D=questionnaire&query%5B0%5D%5Bfield%5D=all&query%5B1%5D%5Boperator%5D=OR&query%5B1%5D%5Btext%5D=%D8%A5%D8%B3%D8%AA%D8%A8%D9%8A%D8%A7%D9%86&query%5B1%5D%5Bfield%5D=all&&has_full_text=0&query%5Blimiter%5D=&query%5Blimiter%5D=&lang=&page_no%5Blimiter%5D=equal&page_no%5Bnumber%5D=&type=&type%5B%5D=Journal+Articles&year%5B0%5D=&year%5B0%5D=2000&year%5B1%5D=&year%5B1%5D=2020"
+
+# Set a user agent that looks like a normal web browser
+ua <- user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36")
+# Set a proxy
+proxy <- use_proxy(url="proxy-nl.privateinternetaccess.com",
+          port = 1080,
+          username = "x6593596",
+          password = "8ErzeDWpS3",
+          auth = "basic"
+        )
 
 # Download binaries, start driver, and get client object.
 # This technique works in base R running on Linux. For other operation systems,
@@ -47,24 +58,40 @@ ffdriv <- rdriv$client
 # Navigate to page.
 ffdriv$navigate(scrape_url)
 
-# Find total number of records
-#total_records <- 
+# Find total number of records indicated in expansion link at bottom of SERP
 total_count_span <- ffdriv$findElement(using = "css", ".summery-totalCount")
-
+# Extract total number of responsive records as indicated in the SERP
 total_count <- as.numeric(total_count_span$getElementText())
-
-total_clicks <- floor(total_count/15)
-
+# Count how many results are presented on each SERP page expansion 
+page_count <- 15
+#^ This really should be done by counting the number of records in the first
+#SERP, but we'll kuldge it for now with a manual count of 15, which is regular
+#across emarefa.net SERPs
+#Divide total count by number of records in each SERP page 
+total_clicks <- floor(total_count/page_count)
+# Let Selenium click and expand results for entire search 
 repeat {
   total_clicks <- total_clicks-1
   cat("\r",total_clicks,"results expansions remaining. ")
+  # Check time of click
+  t0 <- Sys.time()
   # Find the load button and assign, then send click event.
   load_btn <- ffdriv$findElement(using = "css selector", ".load-more-btn")
   load_btn$clickElement()
+  # Check time after click loads
+  t1 <- Sys.time()
   # Wait for elements to load.
+  # Choose a random number of seconds
   seconds <- sample(2:10, 1, replace=T)
-  cat("Waiting", seconds, "seconds until next expansion. ")
-  Sys.sleep(seconds)
+  # Identify how long the response took
+  response_delay <- as.numeric(t1-t0)
+  # Optimize wait time
+  sleepy_time <- seconds+(10*response_delay)
+  # Tell the user what is happening
+  cat("Waiting", sleepy_time, "seconds until next expansion. ")
+  # Wait
+  Sys.sleep(sleepy_time)
+  # Check if you are at the end of the list and, if co, break
   if (total_clicks == 0){
     cat("\r","Results fully expanded.");
     break
@@ -102,21 +129,64 @@ record_list <- data.frame(record_id, canonical, title)
 #rm(title, record_id, detail_url_trunc, detail_url, html_data)
 ### PART 2 ###
 ### Loop over list of links to detail pages
-d <- vector("list", length(canonical))
-
+# Create vector to keep track of downloaded links
+done <- vector("list", length(canonical))
+# Construct list of urls from filenames in archive directory
+current <- gsub(".html", "", list.files(paste0("./", slug, "/detail/")))
+# Add existing successful urls to done vector
+names(done) <- paste0(baseurl, "/detail/", current)
 
 for (i in seq_along(canonical)) {
-  # Check for existing file
-  filepath <- paste0("./", slug, "/detail/", record_id[i], ".html")
-  # Write local copy of scraped HTML
-  if (!file.exists(filepath)) {
-    # Read in html from detail page listed in records_list
-    html.loop <- read_html(canonical[i])
-    write_html(html.loop, file = filepath)
+  # EXPLAIN THYSELF
+  cat("\r", "Downloading", record_id[i], "...")
+  # Has the target detail page been scraped already?
+  if (!(canonical[i] %in% names(done))) {
+    # Check time of request
+    t0 <- Sys.time()
+    # Choose a random number of seconds
     seconds <- sample(1:5, 1, replace=T)
-    cat("\r", record_id[i], "downloaded. Getting next record in", seconds, "seconds. ")
-    # Sleep for random number of seconds
-    Sys.sleep(seconds)
+    # Set private boolean
+    ok <- FALSE
+    # Reset counter
+    counter <- 0
+    # Try to open session up to five times before skipping to the next url
+    while (ok == FALSE & counter <= 5) {
+      # Increment counter
+      counter <- counter + 1
+      # Incorporate exception handling
+      out <- tryCatch({
+                # Read in html from detail page listed in records_list
+                session.loop <- html_session(canonical[i],ua)
+                # Store HTML in a variable
+                html.loop <- read_html(session.loop)
+                # Check time of response
+                t1 <- Sys.time()
+                # Identify how long the response took
+                response_delay <- as.numeric(t1-t0)
+                # Optimize wait time
+                sleepy_time <- seconds+(10*response_delay)
+                },
+                error = function(e) {
+                  Sys.sleep(sleepy_time)
+                  e
+                }
+              )
+      if ("error" %in% class(out)) {
+        cat("\r", record_id[i], "download failed. Skipping. Getting next record in", sleepy_time, "seconds. ")
+      } else {
+        ok <- TRUE
+        cat("\r", record_id[i], "downloaded. Getting next record in", sleepy_time, "seconds. ")
+      }
+      # Wait
+      Sys.sleep(sleepy_time)
+    }
+    # Create a filepath to write to
+    filepath <- paste0("./", slug, "/detail/", record_id[i], ".html")
+    write_html(html.loop, file = filepath)
+    # Put output in done list
+    done[[i]] <- out
+    # Add URL to done list
+    names(done)[i] <- links[i]
   } else {
     cat("\r", record_id[i], "already downloaded. Skipping.")
   }
