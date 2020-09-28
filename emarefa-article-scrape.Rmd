@@ -7,7 +7,7 @@ This notebook contains code for scraping Search Engine Result Pages (SERPs) from
 
 ```{r}
 # Check for required packages and install if not already installed
-list.of.packages <- c("rvest", "RSelenium", "tidyverse")
+list.of.packages <- c("rvest", "RSelenium", "tidyverse", "data.table", "dplyr", "httr")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 # Load required package list
@@ -26,7 +26,10 @@ After all results are expanded by Selenium, we scrape the full SERP, and then pa
 library('rvest')
 library('RSelenium')
 library('httr')
+library('dplyr')
+```
 
+```{r}
 ### PART 1 ###
 # Specifying the url for desired website to be scraped
 baseurl <- "https://search.emarefa.net"
@@ -35,12 +38,7 @@ scrape_url <- "https://search.emarefa.net/social-sciences?query%5B0%5D%5Btext%5D
 # Set a user agent that looks like a normal web browser
 ua <- user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36")
 # Set a proxy
-proxy <- use_proxy(url="proxy-nl.privateinternetaccess.com",
-          port = 1080,
-          username = "x6593596",
-          password = "8ErzeDWpS3",
-          auth = "basic"
-        )
+proxy <- use_proxy("socks5://localhost:9050")
 
 # Download binaries, start driver, and get client object.
 # This technique works in base R running on Linux. For other operation systems,
@@ -126,9 +124,19 @@ canonical <- paste0(baseurl, "/detail/", record_id)
 # Build data frame
 record_list <- data.frame(record_id, canonical, title)
 # Clean up unused values
-#rm(title, record_id, detail_url_trunc, detail_url, html_data)
+rm(title, record_id)
+```
+# Archiving HTML 
+
+In this part we proceed to download and archive the actual HTML pages that we identified in part 1.
+
+For error handling, we incorporated a while loop based on this:
+https://stackoverflow.com/questions/39056103/iterating-rvest-scrape-function-gives-error-in-open-connectionx-rb-time/39057166
+
+```{r}
 ### PART 2 ###
-### Loop over list of links to detail pages
+# Loop over list of links to detail pages and download the HTML as individual
+# files.
 # Create vector to keep track of downloaded links
 done <- vector("list", length(canonical))
 # Construct list of urls from filenames in archive directory
@@ -139,139 +147,116 @@ names(done) <- paste0(baseurl, "/detail/", current)
 for (i in seq_along(canonical)) {
   # Has the target detail page been scraped already?
   if (!(canonical[i] %in% names(done))) {
-    cat("\r", record_id[i], "downloading")
+    cat("\n")
+    cat("\r", record_id[i], "downloading.                                                                            ")
     # Check time of request
     t0 <- Sys.time()
     # Choose a random number of seconds
-    seconds <- runif(1, 0, 6)
-    # Read in html from detail page listed in records_list
-    session.loop <- html_session(canonical[i],ua)
+    seconds <- runif(1, 0, 10)
+    # Set a timeout sleep 
+    fail_sleep <- sample(1:60, 1, replace = TRUE)
+    # Set private boolean
+    ok <- FALSE
+    # Reset counter
+    counter <- 0
+    # Try to open session up to five times before skipping to the next url
+    # https://stackoverflow.com/a/39057166
+    while (ok == FALSE & counter <= 5) {
+      # Increment counter
+      counter <- counter + 1
+      # Incorporate exception handling
+      out <- tryCatch({
+          # Read in html from detail page listed in records_list
+          session.loop <- html_session(canonical[i], ua, proxy)
+        },
+        error = function(e) {
+          cat("\r", record_id[i], "download timed out. Waiting ", fail_sleep, "seconds to try again.                        ")
+          Sys.sleep(fail_sleep)
+          e
+        }
+      )
+    }
+    if ("error" %in% class(out)) {
+      cat("\r", record_id[i], "download failed. Skipping. Getting next record in", fail_sleep, "seconds.              ")
+    } else {
+    ok <- TRUE
     # Store HTML in a variable
     html.loop <- read_html(session.loop)
+    #html.loop <- read_html(canonical[i])
     # Check time of response
     t1 <- Sys.time()
     # Identify how long the response took
     response_delay <- as.numeric(t1-t0)
     # Optimize wait time
-    sleepy_time <- seconds+(7*response_delay)
-
-    cat("\r", record_id[i], "downloaded. Getting next record in", sleepy_time, "seconds. ")
-    
+    sleepy_time <- seconds+(sample(1:10, 1, replace = TRUE)*response_delay)
+    # Communicate wait time
+    cat("\r", record_id[i], "downloaded in", response_delay, "seconds. Waiting", sleepy_time, "seconds to get next record.                ")
     # Create a filepath to write to
     filepath <- paste0("./", slug, "/detail/", record_id[i], ".html")
     write_html(html.loop, file = filepath)
     # Add URL to done list
     names(done)[i] <- canonical[i]
     Sys.sleep(sleepy_time)
-  } else {
-    cat("\r", record_id[i], "already downloaded. Skipping.")
-  }
-}
-
-for (i in seq_along(canonical)) {
-  # EXPLAIN THYSELF
-  cat("\r", "Downloading", record_id[i], "...")
-  # Has the target detail page been scraped already?
-  if (!(canonical[i] %in% names(done))) {
-    # Check time of request
-    t0 <- Sys.time()
-    # Choose a random number of seconds
-    seconds <- sample(1:5, 1, replace=T)
-    # Set private boolean
-    ok <- FALSE
-    # Reset counter
-    counter <- 0
-    # Try to open session up to five times before skipping to the next url
-    while (ok == FALSE & counter <= 5) {
-      # Increment counter
-      counter <- counter + 1
-      # Incorporate exception handling
-      out <- tryCatch({
-                # Read in html from detail page listed in records_list
-                session.loop <- html_session(canonical[i],ua)
-                # Store HTML in a variable
-                html.loop <- read_html(session.loop)
-                # Check time of response
-                t1 <- Sys.time()
-                # Identify how long the response took
-                response_delay <- as.numeric(t1-t0)
-                # Optimize wait time
-                sleepy_time <- seconds+(10*response_delay)
-                },
-                error = function(e) {
-                  Sys.sleep(sleepy_time)
-                  e
-                }
-              )
-      if ("error" %in% class(out)) {
-        cat("\r", record_id[i], "download failed. Skipping. Getting next record in", sleepy_time, "seconds. ")
-      } else {
-        ok <- TRUE
-        cat("\r", record_id[i], "downloaded. Getting next record in", sleepy_time, "seconds. ")
-      }
-      # Wait
-      Sys.sleep(sleepy_time)
     }
-    # Create a filepath to write to
-    filepath <- paste0("./", slug, "/detail/", record_id[i], ".html")
-    write_html(html.loop, file = filepath)
-    # Put output in done list
-    done[[i]] <- out
-    # Add URL to done list
-    names(done)[i] <- links[i]
   } else {
-    cat("\r", record_id[i], "already downloaded. Skipping.")
+    cat("\r", record_id[i], "already downloaded. Skipping.                                                             ")
   }
 }
+```
 
-# Construct list of urls from filenames in archive directory
-
-
+```{r}
+### Part 3
+# Extract data from saved html pages and build data frame record_data. Then, 
+# merge record_data onto record_list sorted by record_id.
+# Load data.table
+require(data.table)
+# Make blank data frame
+#rm(record_data)
+record_data <- data.frame()
+# Extract data from downloaded HTML pages
 current.extract <- list.files(paste0("./", slug, "/detail"), full.names = TRUE)
 # Loop over 
 for (i in 1:length(current.extract)) {
 # Read in HTML from archived files  
   raw.loop <- read_html(current.extract[i])
-# Extract metadata fieldnames
+# Extract names of catalog fields contained in h3 tags
   varnames.loop <- html_nodes(raw.loop, ".inner-container > h3") %>% html_text()
 # Clean up fieldnames for insertion in records_lsit dataframe
-# Remove "Topics" because it doesn't parse the same as the other fields and is
+# Remove several fields that don't parse the same as the other fields and are
 # unnecessary for our purposes
-  varnames.loop <- varnames.loop[!grepl("Topics", varnames.loop, ignore.case = TRUE)]
+  varnames.loop <- varnames.loop[!grepl("Topics|Table of Contents", varnames.loop, ignore.case = TRUE)]
 # Remove punctuation and special characters from variable names
   varnames.loop <- gsub("[[:punct:]]", "", varnames.loop)
 # force lowercase and replace all spaces with underscores
   varnames.loop <- tolower(gsub(" ", "_", varnames.loop))
-# Build an empty dataframe with the varnames as column names
-  df.loop <- data.frame(matrix(ncol = length(varnames.loop), nrow = 0))
-  names(df.loop) <- varnames.loop
-
+# Extract catalog data fields that contain normal p tags
   values.loop <- html_nodes(raw.loop, ".inner-container > p") %>% html_text()
-
-  df.loop[1, ] <- as.list(values.loop)
-
+# Turn our extracted catalog fields into a dataframe with one row 
+  df.loop <- data.frame(t(values.loop))
+# Assign our extracted catalog field names as column names
+  names(df.loop) <- varnames.loop
+# Make all variables character variables
+  df.loop <- df.loop %>% mutate_if(is.logical, as.character)
+# Extract and append English abstract if present
   df.loop$abstract_en <-
     html_node(raw.loop, "#EN_ABSTRACT > p") %>% html_text()
-
+# Extract and append Arabic abstract if present
   df.loop$abstract_ar <-
     html_node(raw.loop, "#AR_ABSTRACT > p") %>% html_text()
-
+# Extract and append Frech abstract if present
   df.loop$abstract_fr <-
     html_node(raw.loop, "#FR_ABSTRACT > p") %>% html_text()
-# Write to dataframe
-  record_list <- merge(df.loop, record_list, all.x = TRUE, all.y = TRUE)
-### End loop
+# Bind our new single-row data frame to the data frame we created before the loop
+  record_data <- rbindlist(list(record_data, df.loop), use.names = TRUE, fill=TRUE)
 }
-# 
+  
+
+# Merge record_data onto record_list
+record_complete <- merge(record_data, record_list, by = "record_id")
+
+
 # # Write data frame out to CSV with datetimestamp appended
-# write.csv2(record_list, file = paste0(slug, "/", slug, "-DETAILS.csv"))
+write.csv2(record_complete, file = paste0(slug, "/", slug, "-DETAILS.csv"))
 # # Write data frame out to RDATA with datetimestamp appended
-# save(record_list, file = paste0(paste0(slug, "/", slug, "-DETAILS.Rdata")))
-# # Record end time
-# # end <- format(Sys.time(), "%Y%m%d%H%M%S")
-# # Close ports, stop RSelenium server, garbage collection 
-# #rdriv$close()
-# #ffdriv$server$stop()
-# rm(rdriv)
-# gc()
+save(record_complete, file = paste0(paste0(slug, "/", slug, "-DETAILS.Rdata")))
 ```

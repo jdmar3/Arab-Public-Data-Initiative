@@ -55,7 +55,7 @@ for (i in canonical) {
   #html.loop <- read_html(target)
   html.loop <- read_html(canonical[i])
 # Write local copy of scraped HTML
-  write(html.loop, file=paste0("./", slug, "/", record_id[i], ".html"))
+  #write(html.loop, file=paste0("./", slug, "/", record_id[i], ".html"))
 # Extract metadata fieldnames
   varnames.loop <- html_nodes(html.loop, ".inner-container > h3") %>% html_text()
 # Clean up fieldnames for insertion in records_lsit dataframe
@@ -85,12 +85,12 @@ for (i in canonical) {
 # Write to dataframe
   record_list <- merge(df.loop, record_list, all.x = TRUE, all.y = TRUE)
 ### End loop
-  seconds <- sample(1:5, 1, replace=T)
-  cat("\r", record_id[i], "downloaded. Getting next record in", seconds, "seconds. ")
-# Cleanup
+#   seconds <- sample(1:5, 1, replace=T)
+#   cat("\r", record_id[i], "downloaded. Getting next record in", seconds, "seconds. ")
+# # Cleanup
   #rm(list=ls(pattern=".loop"))
 # Sleep for random number of seconds
-  Sys.sleep(seconds)
+  #Sys.sleep(seconds)
 }
 ```
 
