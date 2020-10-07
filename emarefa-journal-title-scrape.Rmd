@@ -1,0 +1,264 @@
+---
+title: "eMarefa scrape"
+output: emarefa-scrape
+---
+
+This notebook contains code for scraping Search Engine Result Pages (SERPs) from https://search.emarefa.net. It uses rvest and RSelenium. Running the script below will install any packages necesary for the code contained in this document.
+
+```{r}
+# Check for required packages and install if not already installed
+list.of.packages <- c("rvest", "RSelenium", "tidyverse", "data.table", "dplyr", "httr", "devtools")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+# Load required package list
+lapply(list.of.packages, require, character.only = TRUE)
+rm(new.packages,list.of.packages)
+```
+
+The code that follows loads the required packages, and then starts a Selenium server to navigate and scrape data from https://search.emarefa.net. Each SERP has button at the bottom of the page to load more results. Each page contains 15 results. The "Load more results" button loads them on the same SERP rather than loading an entirely new SERP. 
+
+In order to capture the results of an entire search, the results have to be expanded fully before scraping and reading the html as results are not loaded simultaneously, but only when the button is manually clicked. The total number of results is given in the "load more" button. So, we scrape this number first and use it to compute the total number of clicks needed to expand all of the results for a given search URL. Then we use a repeat loop to click the button and load more results until it hits the end. Button clicks are spaced at a random interval between 2 and 10 seconds to minimize strain on server and also to appear as a more natural interaction so as not to be blocked by the target host. This perhaps should be raised to 20 seconds to give a wider range of random pauses, but that will increase the overall time it takes to expand all results. 
+
+After all results are expanded by Selenium, we scrape the full SERP, and then parse it to extract columns corresponding to each field presented in the interface. We have started with the eMarefa record ID, title, and URL of the detail page for each record. In this case, we are pulling together only social science journals. This effectively gives us a list of titles, record numbers, and the URL for their detailed descriptions. 
+
+```{r}
+#Loading the rvest and RSelenium packages
+library('rvest')
+library('RSelenium')
+library('httr')
+library('dplyr')
+```
+
+```{r}
+#Specifying the url for desired website to be scraped
+baseurl <- "https://search.emarefa.net"
+#Only most recent 20 years
+#scrape_url <- "https://search.emarefa.net/social-sciences?type%5B%5D=Journals&year%5B0%5D=2000&year%5B1%5D=2020&order=date_desc&has_full_text=0&page_no%5Blimiter%5D=equal"
+# From1960 to present
+scrape_url <- "https://search.emarefa.net/social-sciences?type%5B%5D=Journals&year%5B0%5D=1960&year%5B1%5D=2020&order=date_desc&has_full_text=0&page_no%5Blimiter%5D=equal"
+
+# Set a user agent that looks like a normal web browser
+ua <- user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36")
+# Set a proxy
+proxy <- use_proxy("socks5://localhost:9050")
+
+# Download binaries, start driver, and get client object.
+# This technique works in base R running on Linux. For other operation systems,
+# see the notes in RSelenium vignettes below.
+# https://cran.r-project.org/web/packages/RSelenium/vignettes/basics.html
+# https://cran.r-project.org/web/packages/RSelenium/vignettes/saucelabs.html
+
+rdriv <- rsDriver(port = 4444L, browser = "firefox")
+# If port is already bound to a running server, there will be an error and you 
+# must restart the session. Otherwise, find the PID of the server process and 
+# kill it. See link below: 
+# https://stackoverflow.com/questions/43991498/rselenium-server-signals-port-is-already-in-use
+ffdriv <- rdriv$client
+
+# Navigate to page.
+ffdriv$navigate(scrape_url)
+
+# Find total number of records indicated in expansion link at bottom of SERP
+total_count_span <- ffdriv$findElement(using = "css", ".summery-totalCount")
+# Extract total number of responsive records as indicated in the SERP
+total_count <- as.numeric(total_count_span$getElementText())
+# Count how many results are presented on each SERP page expansion 
+page_count <- 15
+#^ This really should be done by counting the number of records in the first
+#SERP, but we'll kuldge it for now with a manual count of 15, which is regular
+#across emarefa.net SERPs
+#Divide total count by number of records in each SERP page 
+total_clicks <- floor(total_count/page_count)
+# Let Selenium click and expand results for entire search 
+repeat {
+  total_clicks <- total_clicks-1
+  cat("\r",total_clicks,"results expansions remaining. ")
+  # Check time of click
+  t0 <- Sys.time()
+  # Find the load button and assign, then send click event.
+  load_btn <- ffdriv$findElement(using = "css selector", ".load-more-btn")
+  load_btn$clickElement()
+  # Check time after click loads
+  t1 <- Sys.time()
+  # Wait for elements to load.
+  # Choose a random number of seconds
+  seconds <- sample(2:10, 1, replace=T)
+  # Identify how long the response took
+  response_delay <- as.numeric(t1-t0)
+  # Optimize wait time
+  sleepy_time <- seconds+(10*response_delay)
+  # Tell the user what is happening
+  cat("Waiting", sleepy_time, "seconds until next expansion. ")
+  # Wait
+  Sys.sleep(sleepy_time)
+  # Check if you are at the end of the list and, if co, break
+  if (total_clicks == 0){
+    cat("\r","Results fully expanded.");
+    break
+  }
+}
+
+# Get start time
+begin <- format(Sys.time(), "%Y%m%d%H%M%S")
+# Set slug name
+slug <- paste0(begin, "-emarefa-soc-sci-journal-titles")
+# Create ISO-8601 date folder for cache
+dir.create(paste0(slug))
+# Create detail folder
+dir.create(paste0(slug, "/detail/"))
+# Get HTML data and parse
+#html_data <- ffdriv$getPageSource()[[1]]
+html_data <- read_html("./20201005211135-emarefa-soc-sci-journal-titles/20201005211135-emarefa-soc-sci-journal-titles-LISTING.html")
+# Write html_data to file
+write(html_data, file=paste0(slug, "/", slug, "-LISTING.html"))
+# Extract record ID
+record_id <- html_data %>%
+  #read_html() %>%
+  html_nodes(".content-row") %>%
+  html_attr("data-key")
+# Extract title
+title <- html_data %>% 
+  #read_html() %>% 
+  html_nodes(".title-link h2") %>% 
+  html_text()
+# Construct canonical detail url
+canonical <- paste0(baseurl, "/detail/", record_id)
+# Build data frame
+record_list <- data.frame(record_id, canonical, title)
+# Clean up unused values
+rm(title, record_id, canonical)
+```
+
+```{r}
+### PART 2 ###
+# Loop over list of links to detail pages and download the HTML as individual
+# files.
+# Create vector to keep track of downloaded links
+done <- vector("list", length(record_list$canonical))
+# Construct list of urls from filenames in archive directory
+current <- gsub(".html", "", list.files(paste0("./", slug, "/detail/")))
+# Add existing successful urls to done vector
+names(done) <- paste0(baseurl, "/detail/", current)
+
+for (i in seq_along(record_list$canonical)) {
+  # Has the target detail page been scraped already?
+  if (!(record_list$canonical[i] %in% names(done))) {
+    cat("\n")
+    cat("\r", record_list$record_id[i], "downloading.                                                                            ")
+    # Check time of request
+    t0 <- Sys.time()
+    # Choose a random number of seconds
+    seconds <- runif(1, 0, 10)
+    # Set a timeout sleep 
+    fail_sleep <- sample(1:60, 1, replace = TRUE)
+    # Set private boolean
+    ok <- FALSE
+    # Reset counter
+    counter <- 0
+    # Try to open session up to five times before skipping to the next url
+    # https://stackoverflow.com/a/39057166
+    while (ok == FALSE & counter <= 5) {
+      # Increment counter
+      counter <- counter + 1
+      # Incorporate exception handling
+      out <- tryCatch({
+          # Read in html from detail page listed in records_list
+          session.loop <- html_session(record_list$canonical[i], ua, proxy)
+        },
+        error = function(e) {
+          cat("\r", record_list$record_id[i], "download timed out. Waiting ", fail_sleep, "seconds to try again.                        ")
+          Sys.sleep(fail_sleep)
+          e
+        }
+      )
+    }
+    if ("error" %in% class(out)) {
+      cat("\r", record_list$record_id[i], "download failed. Skipping. Getting next record in", fail_sleep, "seconds.              ")
+    } else {
+    ok <- TRUE
+    # Store HTML in a variable
+    html.loop <- read_html(session.loop)
+    #html.loop <- read_html(canonical[i])
+    # Check time of response
+    t1 <- Sys.time()
+    # Identify how long the response took
+    response_delay <- as.numeric(t1-t0)
+    # Optimize wait time
+    sleepy_time <- seconds+(sample(1:10, 1, replace = TRUE)*response_delay)
+    # Communicate wait time
+    cat("\r", record_list$record_id[i], "downloaded in", response_delay, "seconds. Waiting", sleepy_time, "seconds to get next record.                ")
+    # Create a filepath to write to
+    filepath <- paste0("./", slug, "/detail/", record_list$record_id[i], ".html")
+    write_html(html.loop, file = filepath)
+    # Add URL to done list
+    names(done)[i] <- record_list$canonical[i]
+    Sys.sleep(sleepy_time)
+    }
+  } else {
+    cat("\r", record_list$record_id[i], "already downloaded. Skipping.                                                             ")
+  }
+}
+```
+
+```{r}
+### Part 3
+# Extract data from saved html pages and build data frame record_data. Then, 
+# merge record_data onto record_list sorted by record_id.
+# Load data.table
+require(data.table)
+# Load date and time stuff
+require(devtools)
+install_github("Displayr/flipTime")
+library(flipTime)
+# Make blank data frame
+#rm(record_data)
+record_data <- data.frame()
+# Extract data from downloaded HTML pages
+current.extract <- list.files(paste0("./", slug, "/detail"), full.names = TRUE)
+# Loop over 
+for (i in 1:length(current.extract)) {
+# Read in HTML from archived files  
+  raw.loop <- read_html(current.extract[i])
+# Extract names of catalog fields contained in h3 tags
+  varnames.loop <- html_nodes(raw.loop, ".inner-container > h3") %>% html_text()
+# Clean up fieldnames for insertion in records_lsit dataframe
+# Remove several fields that don't parse the same as the other fields and are
+# unnecessary for our purposes
+  varnames.loop <- varnames.loop[!grepl("Topics|Table of Contents|Holdings", varnames.loop, ignore.case = TRUE)]
+# Remove punctuation and special characters from variable names
+  varnames.loop <- gsub("[[:punct:]]", "", varnames.loop)
+# force lowercase and replace all spaces with underscores
+  varnames.loop <- tolower(gsub(" ", "_", varnames.loop))
+# Extract catalog data fields that contain normal p tags
+  values.loop <- html_nodes(raw.loop, ".inner-container > p") %>% html_text()
+# Turn our extracted catalog fields into a dataframe with one row 
+  df.loop <- data.frame(t(values.loop))
+# Assign our extracted catalog field names as column names
+  names(df.loop) <- varnames.loop
+# Make all variables character variables
+  df.loop <- df.loop %>% mutate_if(is.logical, as.character)
+# Extract list of holdings
+  ul.loop <- 
+    html_nodes(raw.loop, ".inner-container > ul > li") %>% html_text()
+  list.loop <- ul.loop[grepl("\\d{4}\\)", ul.loop, ignore.case = TRUE)]
+  df.loop$holdings <- length(list.loop)
+  dates.loop <- gsub(".*\\(|\\).*", "", list.loop)
+  dates.loop <- AsDate(dates.loop, on.parse.failure = "warn")
+  df.loop$holdings_begin <- min(dates.loop)
+  df.loop$holdings_end <- max(dates.loop)
+# Bind our new single-row data frame to the data frame we created before the loop
+  record_data <- rbindlist(list(record_data, df.loop), use.names = TRUE, fill=TRUE)
+}
+```
+
+```{r}
+# Merge record_data onto record_list
+record_complete <- merge(record_data, record_list, by = "record_id")
+
+
+# # Write data frame out to CSV with datetimestamp appended
+write.csv2(record_complete, file = paste0(slug, "/", slug, "-DETAILS.csv"))
+# # Write data frame out to RDATA with datetimestamp appended
+save(record_complete, file = paste0(paste0(slug, "/", slug, "-DETAILS.Rdata")))
+```
+
